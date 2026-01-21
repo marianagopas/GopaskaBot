@@ -39,17 +39,43 @@ def init_db():
         """)
     print("✅ DB ready")
 
-# ================= AI =================
-ALLOWED = {
-    "category": ["Футболка","Штани","Светр","Пальто"],
-    "style": ["Casual","Classic","Sport"],
-    "color": ["Чорний","Білий","Червоний","Синій"],
-    "season": ["Весна","Літо","Осінь","Зима"],
+# ================= CODES =================
+CATEGORY = {
+    "tshirt": "Футболка",
+    "pants": "Штани",
+    "sweater": "Светр",
+    "coat": "Пальто",
+}
+STYLE = {
+    "casual": "Casual",
+    "classic": "Classic",
+    "sport": "Sport",
+}
+COLOR = {
+    "black": "Чорний",
+    "white": "Білий",
+    "red": "Червоний",
+    "blue": "Синій",
+}
+SEASON = {
+    "spring": "Весна",
+    "summer": "Літо",
+    "autumn": "Осінь",
+    "winter": "Зима",
 }
 
+# ================= AI =================
 async def get_photo_url(bot, file_id):
     file = await bot.get_file(file_id)
     return file.file_path
+
+def parse_ai(text):
+    data = {"category":None,"style":None,"color":None,"season":None}
+    for line in text.splitlines():
+        if "=" in line:
+            k,v = line.split("=",1)
+            data[k.strip()] = v.strip().lower()
+    return data
 
 async def analyze_photo(photo_url):
     response = client.responses.create(
@@ -58,17 +84,18 @@ async def analyze_photo(photo_url):
             "role": "user",
             "content": [
                 {"type": "input_text", "text": """
-Вибери ТІЛЬКИ з варіантів:
-Тип: Футболка, Штани, Светр, Пальто
-Стиль: Casual, Classic, Sport
-Колір: Чорний, Білий, Червоний, Синій
-Сезон: Весна, Літо, Осінь, Зима
+Return ONLY codes.
 
-Формат:
-Тип: ...
-Стиль: ...
-Колір: ...
-Сезон: ...
+Category: tshirt, pants, sweater, coat
+Style: casual, classic, sport
+Color: black, white, red, blue
+Season: spring, summer, autumn, winter
+
+Format:
+category=...
+style=...
+color=...
+season=...
 """}, 
                 {"type": "input_image", "image_url": photo_url}
             ]
@@ -79,17 +106,7 @@ async def analyze_photo(photo_url):
     text = response.output_text
     print("🧠 AI RAW:", text)
 
-    data = {"category":None,"style":None,"color":None,"season":None}
-    for line in text.splitlines():
-        if "Тип:" in line: data["category"] = line.split(":",1)[1].strip()
-        if "Стиль:" in line: data["style"] = line.split(":",1)[1].strip()
-        if "Колір:" in line: data["color"] = line.split(":",1)[1].strip()
-        if "Сезон:" in line: data["season"] = line.split(":",1)[1].strip()
-
-    for k in data:
-        if data[k] not in ALLOWED[k]:
-            data[k] = None
-
+    data = parse_ai(text)
     print("✅ PARSED:", data)
     return data
 
@@ -130,11 +147,11 @@ def main_menu():
         [InlineKeyboardButton("✅ Показати результат", callback_data="show_result")],
     ])
 
-def filter_menu(chat_id, key):
+def filter_menu(chat_id, key, source):
     rows = []
-    for v in ALLOWED[key]:
-        mark = " ✅" if v in user_filters[chat_id][key] else ""
-        rows.append([InlineKeyboardButton(v + mark, callback_data=f"toggle:{key}:{v}")])
+    for code, label in source.items():
+        mark = " ✅" if code in user_filters[chat_id][key] else ""
+        rows.append([InlineKeyboardButton(label + mark, callback_data=f"toggle:{key}:{code}")])
     rows.append([InlineKeyboardButton("⬅️ Назад", callback_data="main")])
     return InlineKeyboardMarkup(rows)
 
@@ -168,9 +185,17 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text("✨ Gopaska Stylist", reply_markup=main_menu())
         return
 
-    if d.startswith("filter:"):
-        key = d.split(":")[1]
-        await q.edit_message_text("Вибери:", reply_markup=filter_menu(chat_id, key))
+    if d == "filter:category":
+        await q.edit_message_text("Тип:", reply_markup=filter_menu(chat_id,"category",CATEGORY))
+        return
+    if d == "filter:color":
+        await q.edit_message_text("Колір:", reply_markup=filter_menu(chat_id,"color",COLOR))
+        return
+    if d == "filter:style":
+        await q.edit_message_text("Стиль:", reply_markup=filter_menu(chat_id,"style",STYLE))
+        return
+    if d == "filter:season":
+        await q.edit_message_text("Сезон:", reply_markup=filter_menu(chat_id,"season",SEASON))
         return
 
     if d.startswith("toggle:"):
@@ -179,7 +204,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_filters[chat_id][key].remove(value)
         else:
             user_filters[chat_id][key].append(value)
-        await q.edit_message_reply_markup(reply_markup=filter_menu(chat_id, key))
+        await q.edit_message_reply_markup(
+            reply_markup=filter_menu(chat_id, key, globals()[key.upper()])
+        )
         return
 
     if d == "show_all":
