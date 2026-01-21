@@ -54,7 +54,58 @@ def cleanup_old_items():
         """)
     print("🧹 Старі фото (35+ днів) видалені")
 
+# ===================== AI → СТАНДАРТНІ НАЗВИ =====================
+COLOR_MAP = {
+    "black": "Чорний",
+    "white": "Білий",
+    "red": "Червоний",
+    "blue": "Синій"
+}
+
+CATEGORY_MAP = {
+    "tshirt": "Футболка",
+    "shirt": "Футболка",
+    "pants": "Штани",
+    "trousers": "Штани",
+    "sweater": "Светр",
+    "coat": "Пальто",
+    "jacket": "Пальто"
+}
+
+STYLE_MAP = {
+    "casual": "Casual",
+    "classic": "Classic",
+    "sport": "Sport"
+}
+
+SEASON_MAP = {
+    "spring": "Весна",
+    "summer": "Літо",
+    "autumn": "Осінь",
+    "fall": "Осінь",
+    "winter": "Зима"
+}
+
+def map_ai_data(ai_data):
+    mapped = {}
+    if ai_data.get("category"):
+        key = ai_data["category"].strip().lower()
+        mapped["category"] = CATEGORY_MAP.get(key, ai_data["category"])
+    if ai_data.get("color"):
+        key = ai_data["color"].strip().lower()
+        mapped["color"] = COLOR_MAP.get(key, ai_data["color"])
+    if ai_data.get("style"):
+        key = ai_data["style"].strip().lower()
+        mapped["style"] = STYLE_MAP.get(key, ai_data["style"])
+    if ai_data.get("season"):
+        key = ai_data["season"].strip().lower()
+        mapped["season"] = SEASON_MAP.get(key, ai_data["season"])
+    mapped["description"] = ai_data.get("description")
+    return mapped
+
+# ===================== DATABASE SAVE =====================
 def save_item(file_id, message_id, photo_date, ai_data):
+    mapped = map_ai_data(ai_data)
     with conn.cursor() as cur:
         cur.execute("""
             INSERT INTO items (
@@ -73,11 +124,11 @@ def save_item(file_id, message_id, photo_date, ai_data):
             file_id,
             message_id,
             photo_date,
-            ai_data.get("category", "").strip().lower() if ai_data.get("category") else None,
-            ai_data.get("style", "").strip().lower() if ai_data.get("style") else None,
-            ai_data.get("season", "").strip().lower() if ai_data.get("season") else None,
-            ai_data.get("color", "").strip().lower() if ai_data.get("color") else None,
-            ai_data.get("description")
+            mapped.get("category"),
+            mapped.get("style"),
+            mapped.get("season"),
+            mapped.get("color"),
+            mapped.get("description")
         ))
 
 # ===================== AI ANALYSIS =====================
@@ -112,7 +163,7 @@ async def analyze_photo():
         return {"description": f"❌ OpenAI error: {e}"}
 
 # ===================== USER FILTERS =====================
-user_filters = {}  # key: chat_id, value: dict з вибраними фільтрами
+user_filters = {}
 
 def reset_filters(chat_id):
     user_filters[chat_id] = {"category": [], "style": [], "color": [], "season": []}
@@ -131,9 +182,8 @@ def build_main_keyboard():
 def build_filter_keyboard(chat_id, filter_type, options):
     keyboard = []
     for opt in options:
-        mark = " ✅" if opt.lower() in [v.lower() for v in user_filters[chat_id][filter_type]] else ""
+        mark = " ✅" if opt in user_filters[chat_id][filter_type] else ""
         keyboard.append([InlineKeyboardButton(opt + mark, callback_data=f"{filter_type}:{opt}")])
-    # Додаємо кнопки "Назад" та "Головне меню"
     keyboard.append([InlineKeyboardButton("Назад", callback_data="main_menu")])
     keyboard.append([InlineKeyboardButton("Головне меню", callback_data="main_menu_clear")])
     return InlineKeyboardMarkup(keyboard)
@@ -165,18 +215,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reset_filters(chat_id)
     data = query.data
 
-    # Головне меню (залишаємо фільтри)
     if data == "main_menu":
         await query.edit_message_text("✨ Gopaska Stylist Bot працює", reply_markup=build_main_keyboard())
         return
-
-    # Головне меню з очищенням всіх фільтрів
     if data == "main_menu_clear":
         reset_filters(chat_id)
         await query.edit_message_text("✨ Gopaska Stylist Bot працює", reply_markup=build_main_keyboard())
         return
 
-    # Показати всі фото
     if data == "show_all":
         with conn.cursor() as cur:
             cur.execute("SELECT telegram_file_id FROM items ORDER BY created_at DESC LIMIT 50")
@@ -196,7 +242,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if filter_type == "category":
             options = ["Футболка","Штани","Светр","Пальто"]
         elif filter_type == "color":
-            options = ["Червоний","Синій","Чорний","Білий"]
+            options = ["Чорний","Білий","Червоний","Синій"]
         elif filter_type == "style":
             options = ["Casual","Classic","Sport"]
         elif filter_type == "season":
@@ -210,14 +256,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Додавання фільтра
     if ":" in data:
         filter_type, value = data.split(":",1)
-        if value.lower() not in [v.lower() for v in user_filters[chat_id][filter_type]]:
+        if value not in user_filters[chat_id][filter_type]:
             user_filters[chat_id][filter_type].append(value)
-        # Оновлюємо меню з позначкою ✅
         options = []
         if filter_type == "category":
             options = ["Футболка","Штани","Светр","Пальто"]
         elif filter_type == "color":
-            options = ["Червоний","Синій","Чорний","Білий"]
+            options = ["Чорний","Білий","Червоний","Синій"]
         elif filter_type == "style":
             options = ["Casual","Classic","Sport"]
         elif filter_type == "season":
@@ -236,8 +281,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         for key, vals in filters_selected.items():
             if vals:
-                query_text += " AND (" + " OR ".join([f"{key} ILIKE %s" for _ in vals]) + ")"
-                params.extend(vals)
+                query_text += " AND " + key + " = ANY(%s)"
+                params.append(vals)
 
         query_text += " ORDER BY created_at DESC LIMIT 50"
 
@@ -246,10 +291,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             rows = cur.fetchall()
 
         if not rows:
-            await query.edit_message_text(
-                "Немає результатів для обраних фільтрів 😔",
-                reply_markup=build_main_keyboard()
-            )
+            await query.edit_message_text("Немає результатів для обраних фільтрів 😔", reply_markup=build_main_keyboard())
             return
 
         await query.edit_message_text("🎯 Результати для ваших фільтрів:")
