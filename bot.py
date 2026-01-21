@@ -85,7 +85,7 @@ async def download_photo(file_id, context: ContextTypes.DEFAULT_TYPE):
     return bio
 
 async def analyze_photo():
-    """MVP аналіз через OpenAI"""
+    """Простий MVP аналіз через OpenAI"""
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -148,8 +148,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.ChatType.CHANNEL, handle_channel_post))
     print("✅ Gopaska Stylist Bot запущено")
-    # Polling з drop_pending_updates, щоб не було конфліктів
-    app.run_polling(drop_pending_updates=True)
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
