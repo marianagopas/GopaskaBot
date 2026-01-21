@@ -7,13 +7,11 @@ import openai
 from io import BytesIO
 import base64
 
-# Ініціалізація OpenAI
 openai.api_key = OPENAI_API_KEY
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Gopaska Stylist Bot працює ✨")
 
-# Завантаження фото асинхронно
 async def download_photo(file_id, context: ContextTypes.DEFAULT_TYPE):
     new_file = await context.bot.get_file(file_id)
     bio = BytesIO()
@@ -21,7 +19,6 @@ async def download_photo(file_id, context: ContextTypes.DEFAULT_TYPE):
     bio.seek(0)
     return bio
 
-# Асинхронний аналіз через OpenAI (виконуємо в executor)
 async def analyze_photo(photo_bytes):
     loop = asyncio.get_running_loop()
     def blocking_call():
@@ -46,17 +43,14 @@ async def analyze_photo(photo_bytes):
             return f"Помилка OpenAI: {e}"
     return await loop.run_in_executor(None, blocking_call)
 
-# Хендлер для channel_post
 async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.channel_post
     if not message or not message.photo:
         return
 
-    # Перевіряємо канал
     if str(message.chat.username) != CHANNEL_USERNAME:
         return
 
-    # Перевіряємо дату
     now = datetime.now(timezone.utc)
     if now - message.date > timedelta(days=MAX_AGE_DAYS):
         print("⏭ Старе фото, пропускаємо")
@@ -65,14 +59,10 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
     file_id = message.photo[-1].file_id
     print("📸 Нове фото (≤5 тижнів):", file_id)
 
-    # Завантаження фото
     photo_bytes = await download_photo(file_id, context)
-
-    # Аналіз через OpenAI
     analysis = await analyze_photo(photo_bytes)
     print("📝 Результат аналізу:", analysis)
 
-# Головна функція
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
