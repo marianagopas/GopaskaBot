@@ -73,10 +73,10 @@ def save_item(file_id, message_id, photo_date, ai_data):
             file_id,
             message_id,
             photo_date,
-            ai_data.get("category"),
-            ai_data.get("style"),
-            ai_data.get("season"),
-            ai_data.get("color"),
+            ai_data.get("category", "").strip().lower() if ai_data.get("category") else None,
+            ai_data.get("style", "").strip().lower() if ai_data.get("style") else None,
+            ai_data.get("season", "").strip().lower() if ai_data.get("season") else None,
+            ai_data.get("color", "").strip().lower() if ai_data.get("color") else None,
             ai_data.get("description")
         ))
 
@@ -185,7 +185,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             options = ["Casual","Classic","Sport"]
         elif filter_type == "season":
             options = ["Весна","Літо","Осінь","Зима"]
-        keyboard = [[InlineKeyboardButton(opt, callback_data=f"{filter_type}:{opt}")] for opt in options]
+
+        # Додаємо динамічне відображення вибраних фільтрів
+        keyboard = []
+        for opt in options:
+            mark = " ✅" if opt.lower() in [v.lower() for v in user_filters[chat_id][filter_type]] else ""
+            keyboard.append([InlineKeyboardButton(opt + mark, callback_data=f"{filter_type}:{opt}")])
         keyboard.append([InlineKeyboardButton("Головне меню", callback_data="main_menu")])
         await query.edit_message_text(f"Виберіть {filter_type} (можна кілька):", reply_markup=InlineKeyboardMarkup(keyboard))
         return
@@ -193,20 +198,21 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Додавання фільтра
     if ":" in data:
         filter_type, value = data.split(":",1)
-        if value not in user_filters[chat_id][filter_type]:
+        if value.lower() not in [v.lower() for v in user_filters[chat_id][filter_type]]:
             user_filters[chat_id][filter_type].append(value)
-        await query.edit_message_text(f"✅ Обрано {filter_type}: {user_filters[chat_id][filter_type]}\nНатисніть Показати результати")
+        # Показуємо оновлене меню з відміткою
+        await button_handler(update, context)
         return
 
-    # Показати результати з усіма вибраними фільтрами
+    # Показати результати
     if data == "show_results":
         filters = user_filters[chat_id]
         query_text = "SELECT telegram_file_id FROM items WHERE TRUE"
         params = []
         for key, vals in filters.items():
             if vals:
-                query_text += f" AND {key} = ANY(%s)"
-                params.append(vals)
+                query_text += f" AND LOWER({key}) = ANY(%s)"
+                params.append([v.lower() for v in vals])
         query_text += " ORDER BY created_at DESC LIMIT 50"
         with conn.cursor() as cur:
             cur.execute(query_text, params)
