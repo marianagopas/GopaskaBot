@@ -18,7 +18,6 @@ from openai import OpenAI
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL")
-
 CHANNEL_USERNAME = "Gopaska_boutique_Italyclothing"
 MAX_AGE_DAYS = 35
 
@@ -87,19 +86,13 @@ async def analyze_photo():
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {
-                    "role": "system",
-                    "content": "Ти fashion-стиліст жіночого італійського одягу."
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        "Визнач для речі:\n"
-                        "Тип\nСтиль\nКолір\nСезон\n\n"
-                        "Формат відповіді:\n"
-                        "Тип: ...\nСтиль: ...\nКолір: ...\nСезон: ..."
-                    )
-                }
+                {"role": "system", "content": "Ти fashion-стиліст жіночого італійського одягу."},
+                {"role": "user", "content": (
+                    "Визнач для речі:\n"
+                    "Тип\nСтиль\nКолір\nСезон\n\n"
+                    "Формат відповіді:\n"
+                    "Тип: ...\nСтиль: ...\nКолір: ...\nСезон: ..."
+                )}
             ],
             temperature=0
         )
@@ -141,7 +134,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✨ Gopaska Stylist Bot працює", reply_markup=reply_markup)
 
 async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    print("📩 Отримано подію від Telegram")
     message = update.channel_post
     if not message or not message.photo:
         return
@@ -149,25 +141,20 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
     now = datetime.now(timezone.utc)
     if now - message.date > timedelta(days=MAX_AGE_DAYS):
-        print("⏭ Фото старше 35 днів — пропущено")
         return
-    print("📸 Нове фото з каналу")
     file_id = message.photo[-1].file_id
     ai_data = await analyze_photo()
-    print("📝 Аналіз:", ai_data.get("description"))
     save_item(file_id=file_id, message_id=message.message_id, photo_date=message.date, ai_data=ai_data)
 
-# ===================== CALLBACK BUTTONS =====================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     chat_id = query.message.chat_id
     if chat_id not in user_filters:
         reset_filters(chat_id)
-
     data = query.data
 
-    # Повернення в головне меню
+    # Головне меню
     if data == "main_menu":
         reset_filters(chat_id)
         await start(update, context)
@@ -176,11 +163,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Показати всі фото
     if data == "show_all":
         with conn.cursor() as cur:
-            cur.execute("SELECT telegram_file_id FROM items ORDER BY created_at DESC LIMIT 20")
+            cur.execute("SELECT telegram_file_id FROM items ORDER BY created_at DESC LIMIT 50")
             rows = cur.fetchall()
         if not rows:
             await query.edit_message_text("Немає збережених образів 😔")
             return
+        await query.edit_message_text("🎨 Всі образи:")
         for row in rows:
             await context.bot.send_photo(chat_id=chat_id, photo=row[0])
         return
@@ -198,7 +186,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif filter_type == "season":
             options = ["Весна","Літо","Осінь","Зима"]
         keyboard = [[InlineKeyboardButton(opt, callback_data=f"{filter_type}:{opt}")] for opt in options]
-        keyboard.append([InlineKeyboardButton("Назад", callback_data="main_menu")])
+        keyboard.append([InlineKeyboardButton("Головне меню", callback_data="main_menu")])
         await query.edit_message_text(f"Виберіть {filter_type} (можна кілька):", reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
@@ -207,7 +195,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         filter_type, value = data.split(":",1)
         if value not in user_filters[chat_id][filter_type]:
             user_filters[chat_id][filter_type].append(value)
-        await query.edit_message_text(f"✅ Обрано {filter_type}: {user_filters[chat_id][filter_type]}\nНатисніть Показати результати, щоб завантажити фото")
+        await query.edit_message_text(f"✅ Обрано {filter_type}: {user_filters[chat_id][filter_type]}\nНатисніть Показати результати")
         return
 
     # Показати результати з усіма вибраними фільтрами
@@ -219,7 +207,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if vals:
                 query_text += f" AND {key} = ANY(%s)"
                 params.append(vals)
-        query_text += " ORDER BY created_at DESC LIMIT 20"
+        query_text += " ORDER BY created_at DESC LIMIT 50"
         with conn.cursor() as cur:
             cur.execute(query_text, params)
             rows = cur.fetchall()
@@ -242,7 +230,6 @@ def main():
     PORT = int(os.getenv("PORT", 8080))
     WEBHOOK_URL = f"https://{os.getenv('RAILWAY_PUBLIC_DOMAIN')}"
     print("🌍 Webhook URL:", WEBHOOK_URL)
-    print("✅ Gopaska Stylist Bot запущено через WEBHOOK")
     app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
