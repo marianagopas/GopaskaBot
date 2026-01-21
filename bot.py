@@ -123,15 +123,15 @@ async def analyze_photo():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("Показати всі образи", callback_data="show_all")],
+        [InlineKeyboardButton("Фільтр за типом", callback_data="filter_category")],
         [InlineKeyboardButton("Фільтр за кольором", callback_data="filter_color")],
         [InlineKeyboardButton("Фільтр за стилем", callback_data="filter_style")],
-        [InlineKeyboardButton("Фільтр за сезоном", callback_data="filter_season")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("✨ Gopaska Stylist Bot працює", reply_markup=reply_markup)
 
 async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    print("📩 Отримано подію від Telegram")  # тестовий print
+    print("📩 Отримано подію від Telegram")
     message = update.channel_post
     if not message or not message.photo:
         return
@@ -147,6 +147,7 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
     print("📝 Аналіз:", ai_data.get("description"))
     save_item(file_id=file_id, message_id=message.message_id, photo_date=message.date, ai_data=ai_data)
 
+# ===================== CALLBACK BUTTONS =====================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -161,9 +162,68 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         for row in rows:
             await context.bot.send_photo(chat_id=query.message.chat_id, photo=row[0])
-    else:
-        # Для фільтрів можна додати пошук у базі
-        await query.edit_message_text(f"Функція {data} ще в розробці 🔜")
+
+    elif data == "filter_category":
+        keyboard = [
+            [InlineKeyboardButton("Футболка", callback_data="category:Футболка")],
+            [InlineKeyboardButton("Штани", callback_data="category:Штани")],
+            [InlineKeyboardButton("Светр", callback_data="category:Светр")],
+            [InlineKeyboardButton("Пальто", callback_data="category:Пальто")],
+        ]
+        await query.edit_message_text("Виберіть тип:", reply_markup=InlineKeyboardMarkup(keyboard))
+
+    elif data.startswith("category:"):
+        cat = data.split(":",1)[1]
+        with conn.cursor() as cur:
+            cur.execute("SELECT telegram_file_id FROM items WHERE category=%s ORDER BY created_at DESC LIMIT 10", (cat,))
+            rows = cur.fetchall()
+        if not rows:
+            await query.edit_message_text(f"Немає предметів типу {cat} 😔")
+            return
+        await query.edit_message_text(f"Образи типу {cat}:")
+        for row in rows:
+            await context.bot.send_photo(chat_id=query.message.chat_id, photo=row[0])
+
+    elif data == "filter_color":
+        keyboard = [
+            [InlineKeyboardButton("Червоний", callback_data="color:Червоний")],
+            [InlineKeyboardButton("Синій", callback_data="color:Синій")],
+            [InlineKeyboardButton("Чорний", callback_data="color:Чорний")],
+            [InlineKeyboardButton("Білий", callback_data="color:Білий")],
+        ]
+        await query.edit_message_text("Виберіть колір:", reply_markup=InlineKeyboardMarkup(keyboard))
+
+    elif data.startswith("color:"):
+        col = data.split(":",1)[1]
+        with conn.cursor() as cur:
+            cur.execute("SELECT telegram_file_id FROM items WHERE color=%s ORDER BY created_at DESC LIMIT 10", (col,))
+            rows = cur.fetchall()
+        if not rows:
+            await query.edit_message_text(f"Немає предметів кольору {col} 😔")
+            return
+        await query.edit_message_text(f"Образи кольору {col}:")
+        for row in rows:
+            await context.bot.send_photo(chat_id=query.message.chat_id, photo=row[0])
+
+    elif data == "filter_style":
+        keyboard = [
+            [InlineKeyboardButton("Casual", callback_data="style:Casual")],
+            [InlineKeyboardButton("Classic", callback_data="style:Classic")],
+            [InlineKeyboardButton("Sport", callback_data="style:Sport")],
+        ]
+        await query.edit_message_text("Виберіть стиль:", reply_markup=InlineKeyboardMarkup(keyboard))
+
+    elif data.startswith("style:"):
+        style = data.split(":",1)[1]
+        with conn.cursor() as cur:
+            cur.execute("SELECT telegram_file_id FROM items WHERE style=%s ORDER BY created_at DESC LIMIT 10", (style,))
+            rows = cur.fetchall()
+        if not rows:
+            await query.edit_message_text(f"Немає предметів стилю {style} 😔")
+            return
+        await query.edit_message_text(f"Образи стилю {style}:")
+        for row in rows:
+            await context.bot.send_photo(chat_id=query.message.chat_id, photo=row[0])
 
 # ===================== MAIN (WEBHOOK) =====================
 def main():
