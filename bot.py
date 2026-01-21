@@ -143,6 +143,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print("📩 Отримано подію від Telegram")
     message = update.channel_post
     if not message or not message.photo:
         return
