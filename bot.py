@@ -230,20 +230,28 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Показати результати
     if data == "show_results":
-        filters = user_filters[chat_id]
+        filters_selected = user_filters[chat_id]
         query_text = "SELECT telegram_file_id FROM items WHERE TRUE"
         params = []
-        for key, vals in filters.items():
+
+        for key, vals in filters_selected.items():
             if vals:
-                query_text += f" AND LOWER({key}) = ANY(%s)"
-                params.append([v.lower() for v in vals])
+                query_text += " AND (" + " OR ".join([f"{key} ILIKE %s" for _ in vals]) + ")"
+                params.extend(vals)
+
         query_text += " ORDER BY created_at DESC LIMIT 50"
+
         with conn.cursor() as cur:
             cur.execute(query_text, params)
             rows = cur.fetchall()
+
         if not rows:
-            await query.edit_message_text("Немає результатів для обраних фільтрів 😔", reply_markup=build_main_keyboard())
+            await query.edit_message_text(
+                "Немає результатів для обраних фільтрів 😔",
+                reply_markup=build_main_keyboard()
+            )
             return
+
         await query.edit_message_text("🎯 Результати для ваших фільтрів:")
         for row in rows:
             await context.bot.send_photo(chat_id=chat_id, photo=row[0])
