@@ -88,6 +88,7 @@ def save_item(file_id, message_id, photo_date, ai_data):
             mapped.get("color"), mapped.get("description")
         ))
 
+# ===================== ANALYZE PHOTO =====================
 async def analyze_photo():
     try:
         response = client.chat.completions.create(
@@ -144,6 +145,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✨ Gopaska Stylist Bot працює", reply_markup=build_main_keyboard())
 
 async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print("📩 Event received:", update)
     msg=update.channel_post
     if not msg or not msg.photo: return
     if msg.chat.username!=CHANNEL_USERNAME: return
@@ -154,6 +156,7 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
     save_item(file_id=file_id, message_id=msg.message_id, photo_date=msg.date, ai_data=ai_data)
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print("📩 Button event:", update.callback_query.data)
     query=update.callback_query
     await query.answer()
     chat_id=query.message.chat_id
