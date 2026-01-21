@@ -97,7 +97,6 @@ async def analyze_photo():
             temperature=0
         )
         text = response.choices[0].message.content
-
         data = {"category": None, "style": None, "color": None, "season": None, "description": text}
         for line in text.splitlines():
             if line.startswith("Тип:"):
@@ -118,20 +117,30 @@ user_filters = {}  # key: chat_id, value: dict з вибраними фільт�
 def reset_filters(chat_id):
     user_filters[chat_id] = {"category": [], "style": [], "color": [], "season": []}
 
-# ===================== HANDLERS =====================
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.message.chat_id
-    reset_filters(chat_id)
-    keyboard = [
+# ===================== MENU =====================
+def build_main_keyboard():
+    return InlineKeyboardMarkup([
         [InlineKeyboardButton("Показати всі образи", callback_data="show_all")],
         [InlineKeyboardButton("Фільтр за типом", callback_data="filter_category")],
         [InlineKeyboardButton("Фільтр за кольором", callback_data="filter_color")],
         [InlineKeyboardButton("Фільтр за стилем", callback_data="filter_style")],
         [InlineKeyboardButton("Фільтр за сезоном", callback_data="filter_season")],
         [InlineKeyboardButton("Показати результати", callback_data="show_results")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("✨ Gopaska Stylist Bot працює", reply_markup=reply_markup)
+    ])
+
+def build_filter_keyboard(chat_id, filter_type, options):
+    keyboard = []
+    for opt in options:
+        mark = " ✅" if opt.lower() in [v.lower() for v in user_filters[chat_id][filter_type]] else ""
+        keyboard.append([InlineKeyboardButton(opt + mark, callback_data=f"{filter_type}:{opt}")])
+    keyboard.append([InlineKeyboardButton("Головне меню", callback_data="main_menu")])
+    return InlineKeyboardMarkup(keyboard)
+
+# ===================== HANDLERS =====================
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.message.chat_id
+    reset_filters(chat_id)
+    await update.message.reply_text("✨ Gopaska Stylist Bot працює", reply_markup=build_main_keyboard())
 
 async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.channel_post
@@ -157,7 +166,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Головне меню
     if data == "main_menu":
         reset_filters(chat_id)
-        await start(update, context)
+        await query.edit_message_text("✨ Gopaska Stylist Bot працює", reply_markup=build_main_keyboard())
         return
 
     # Показати всі фото
@@ -166,7 +175,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cur.execute("SELECT telegram_file_id FROM items ORDER BY created_at DESC LIMIT 50")
             rows = cur.fetchall()
         if not rows:
-            await query.edit_message_text("Немає збережених образів 😔")
+            await query.edit_message_text("Немає збережених образів 😔", reply_markup=build_main_keyboard())
             return
         await query.edit_message_text("🎨 Всі образи:")
         for row in rows:
@@ -185,14 +194,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             options = ["Casual","Classic","Sport"]
         elif filter_type == "season":
             options = ["Весна","Літо","Осінь","Зима"]
-
-        # Додаємо динамічне відображення вибраних фільтрів
-        keyboard = []
-        for opt in options:
-            mark = " ✅" if opt.lower() in [v.lower() for v in user_filters[chat_id][filter_type]] else ""
-            keyboard.append([InlineKeyboardButton(opt + mark, callback_data=f"{filter_type}:{opt}")])
-        keyboard.append([InlineKeyboardButton("Головне меню", callback_data="main_menu")])
-        await query.edit_message_text(f"Виберіть {filter_type} (можна кілька):", reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.edit_message_text(
+            f"Виберіть {filter_type} (можна кілька):",
+            reply_markup=build_filter_keyboard(chat_id, filter_type, options)
+        )
         return
 
     # Додавання фільтра
@@ -200,8 +205,20 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         filter_type, value = data.split(":",1)
         if value.lower() not in [v.lower() for v in user_filters[chat_id][filter_type]]:
             user_filters[chat_id][filter_type].append(value)
-        # Показуємо оновлене меню з відміткою
-        await button_handler(update, context)
+        # Оновлюємо меню з позначкою ✅
+        options = []
+        if filter_type == "category":
+            options = ["Футболка","Штани","Светр","Пальто"]
+        elif filter_type == "color":
+            options = ["Червоний","Синій","Чорний","Білий"]
+        elif filter_type == "style":
+            options = ["Casual","Classic","Sport"]
+        elif filter_type == "season":
+            options = ["Весна","Літо","Осінь","Зима"]
+        await query.edit_message_text(
+            f"Виберіть {filter_type} (можна кілька):",
+            reply_markup=build_filter_keyboard(chat_id, filter_type, options)
+        )
         return
 
     # Показати результати
@@ -218,7 +235,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cur.execute(query_text, params)
             rows = cur.fetchall()
         if not rows:
-            await query.edit_message_text("Немає результатів для обраних фільтрів 😔")
+            await query.edit_message_text("Немає результатів для обраних фільтрів 😔", reply_markup=build_main_keyboard())
             return
         await query.edit_message_text("🎯 Результати для ваших фільтрів:")
         for row in rows:
