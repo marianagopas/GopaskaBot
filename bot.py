@@ -133,7 +133,9 @@ def build_filter_keyboard(chat_id, filter_type, options):
     for opt in options:
         mark = " ✅" if opt.lower() in [v.lower() for v in user_filters[chat_id][filter_type]] else ""
         keyboard.append([InlineKeyboardButton(opt + mark, callback_data=f"{filter_type}:{opt}")])
-    keyboard.append([InlineKeyboardButton("Головне меню", callback_data="main_menu")])
+    # Додаємо кнопки "Назад" та "Головне меню"
+    keyboard.append([InlineKeyboardButton("Назад", callback_data="main_menu")])
+    keyboard.append([InlineKeyboardButton("Головне меню", callback_data="main_menu_clear")])
     return InlineKeyboardMarkup(keyboard)
 
 # ===================== HANDLERS =====================
@@ -163,8 +165,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reset_filters(chat_id)
     data = query.data
 
-    # Головне меню
+    # Головне меню (залишаємо фільтри)
     if data == "main_menu":
+        await query.edit_message_text("✨ Gopaska Stylist Bot працює", reply_markup=build_main_keyboard())
+        return
+
+    # Головне меню з очищенням всіх фільтрів
+    if data == "main_menu_clear":
         reset_filters(chat_id)
         await query.edit_message_text("✨ Gopaska Stylist Bot працює", reply_markup=build_main_keyboard())
         return
