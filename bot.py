@@ -1,12 +1,6 @@
 import os
 import psycopg2
-from datetime import datetime, timedelta, timezone
-
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-)
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -15,22 +9,19 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
-
 from openai import OpenAI
 
-# ================== CONFIG ==================
+# ================= CONFIG =================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL")
 RAILWAY_DOMAIN = os.getenv("RAILWAY_PUBLIC_DOMAIN")
-
 CHANNEL_USERNAME = "Gopaska_boutique_Italyclothing"
-MAX_DAYS = 35
 
-# ================== OPENAI ==================
+# ================= OPENAI =================
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# ================== DATABASE ==================
+# ================= DATABASE =================
 conn = psycopg2.connect(DATABASE_URL)
 conn.autocommit = True
 
@@ -43,21 +34,12 @@ def init_db():
             category TEXT,
             style TEXT,
             color TEXT,
-            season TEXT,
-            created_at TIMESTAMP DEFAULT NOW()
-        );
+            season TEXT
+        )
         """)
     print("✅ DB ready")
 
-def cleanup_db():
-    with conn.cursor() as cur:
-        cur.execute("""
-        DELETE FROM items
-        WHERE created_at < NOW() - INTERVAL '35 days'
-        """)
-    print("🧹 Old items deleted")
-
-# ================== AI ==================
+# ================= AI =================
 ALLOWED = {
     "category": ["Футболка","Штани","Светр","Пальто"],
     "style": ["Casual","Classic","Sport"],
@@ -76,8 +58,6 @@ async def analyze_photo(photo_url):
             "role": "user",
             "content": [
                 {"type": "input_text", "text": """
-Ти fashion-стиліст жіночого італійського одягу.
-
 Вибери ТІЛЬКИ з варіантів:
 Тип: Футболка, Штани, Светр, Пальто
 Стиль: Casual, Classic, Sport
@@ -89,7 +69,7 @@ async def analyze_photo(photo_url):
 Стиль: ...
 Колір: ...
 Сезон: ...
-"""},
+"""}, 
                 {"type": "input_image", "image_url": photo_url}
             ]
         }],
@@ -97,7 +77,7 @@ async def analyze_photo(photo_url):
     )
 
     text = response.output_text
-    print("🧠 AI:", text)
+    print("🧠 AI RAW:", text)
 
     data = {"category":None,"style":None,"color":None,"season":None}
     for line in text.splitlines():
@@ -110,7 +90,7 @@ async def analyze_photo(photo_url):
         if data[k] not in ALLOWED[k]:
             data[k] = None
 
-    print("✅ Parsed:", data)
+    print("✅ PARSED:", data)
     return data
 
 def save_item(file_id, data):
@@ -126,9 +106,9 @@ def save_item(file_id, data):
             data["color"],
             data["season"],
         ))
-    print("💾 Saved to DB")
+    print("💾 SAVED")
 
-# ================== FILTERS ==================
+# ================= FILTER STATE =================
 user_filters = {}
 
 def reset_filters(chat_id):
@@ -139,42 +119,40 @@ def reset_filters(chat_id):
         "season": [],
     }
 
-# ================== MENUS ==================
+# ================= MENUS =================
 def main_menu():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("👗 Показати всі образи", callback_data="show_all")],
-        [InlineKeyboardButton("📂 Тип", callback_data="filter:category")],
-        [InlineKeyboardButton("🎨 Колір", callback_data="filter:color")],
-        [InlineKeyboardButton("🧥 Стиль", callback_data="filter:style")],
-        [InlineKeyboardButton("🌤 Сезон", callback_data="filter:season")],
+        [InlineKeyboardButton("👗 Всі образи", callback_data="show_all")],
+        [InlineKeyboardButton("Тип", callback_data="filter:category")],
+        [InlineKeyboardButton("Колір", callback_data="filter:color")],
+        [InlineKeyboardButton("Стиль", callback_data="filter:style")],
+        [InlineKeyboardButton("Сезон", callback_data="filter:season")],
         [InlineKeyboardButton("✅ Показати результат", callback_data="show_result")],
     ])
 
 def filter_menu(chat_id, key):
-    buttons = []
+    rows = []
     for v in ALLOWED[key]:
         mark = " ✅" if v in user_filters[chat_id][key] else ""
-        buttons.append([InlineKeyboardButton(v + mark, callback_data=f"toggle:{key}:{v}")])
-    buttons.append([InlineKeyboardButton("⬅️ Назад", callback_data="main")])
-    return InlineKeyboardMarkup(buttons)
+        rows.append([InlineKeyboardButton(v + mark, callback_data=f"toggle:{key}:{v}")])
+    rows.append([InlineKeyboardButton("⬅️ Назад", callback_data="main")])
+    return InlineKeyboardMarkup(rows)
 
-# ================== HANDLERS ==================
+# ================= HANDLERS =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reset_filters(update.effective_chat.id)
     await update.message.reply_text("✨ Gopaska Stylist", reply_markup=main_menu())
 
 async def channel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.channel_post
-    if not msg or not msg.photo:
-        return
-    if msg.chat.username != CHANNEL_USERNAME:
+    if not msg or not msg.photo or msg.chat.username != CHANNEL_USERNAME:
         return
 
     file_id = msg.photo[-1].file_id
     photo_url = await get_photo_url(context.bot, file_id)
 
-    ai_data = await analyze_photo(photo_url)
-    save_item(file_id, ai_data)
+    data = await analyze_photo(photo_url)
+    save_item(file_id, data)
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -184,19 +162,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if chat_id not in user_filters:
         reset_filters(chat_id)
 
-    data = q.data
+    d = q.data
 
-    if data == "main":
+    if d == "main":
         await q.edit_message_text("✨ Gopaska Stylist", reply_markup=main_menu())
         return
 
-    if data.startswith("filter:"):
-        key = data.split(":")[1]
-        await q.edit_message_text(f"Вибери {key}", reply_markup=filter_menu(chat_id, key))
+    if d.startswith("filter:"):
+        key = d.split(":")[1]
+        await q.edit_message_text("Вибери:", reply_markup=filter_menu(chat_id, key))
         return
 
-    if data.startswith("toggle:"):
-        _, key, value = data.split(":")
+    if d.startswith("toggle:"):
+        _, key, value = d.split(":")
         if value in user_filters[chat_id][key]:
             user_filters[chat_id][key].remove(value)
         else:
@@ -204,22 +182,27 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_reply_markup(reply_markup=filter_menu(chat_id, key))
         return
 
-    if data == "show_all":
+    if d == "show_all":
         with conn.cursor() as cur:
             cur.execute("SELECT telegram_file_id FROM items ORDER BY id DESC LIMIT 30")
             rows = cur.fetchall()
-        await q.edit_message_text("👗 Усі образи")
+        await q.edit_message_text("👗 Всі образи")
         for r in rows:
             await context.bot.send_photo(chat_id, r[0])
         return
 
-    if data == "show_result":
+    if d == "show_result":
         sql = "SELECT telegram_file_id FROM items WHERE TRUE"
         params = []
-        for k,v in user_filters[chat_id].items():
-            if v:
-                sql += f" AND {k} IN %s"
-                params.append(tuple(v))
+
+        for key, values in user_filters[chat_id].items():
+            if values:
+                placeholders = ",".join(["%s"] * len(values))
+                sql += f" AND {key} IN ({placeholders})"
+                params.extend(values)
+
+        print("🔎 SQL:", sql)
+        print("🔎 PARAMS:", params)
 
         with conn.cursor() as cur:
             cur.execute(sql, params)
@@ -233,10 +216,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for r in rows:
             await context.bot.send_photo(chat_id, r[0])
 
-# ================== MAIN ==================
+# ================= MAIN =================
 def main():
     init_db()
-    cleanup_db()
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
