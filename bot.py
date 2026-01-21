@@ -198,9 +198,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if ":" in data:
         filter_type,value=data.split(":",1)
         if value in user_filters[chat_id][filter_type]:
-            user_filters[chat_id][filter_type].remove(value)  # знімаємо вибір
+            user_filters[chat_id][filter_type].remove(value)
         else:
-            user_filters[chat_id][filter_type].append(value)   # додаємо вибір
+            user_filters[chat_id][filter_type].append(value)
         options=[]
         if filter_type=="category": options=["Футболка","Штани","Светр","Пальто"]
         elif filter_type=="color": options=["Чорний","Білий","Червоний","Синій"]
