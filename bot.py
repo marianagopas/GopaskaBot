@@ -1,10 +1,9 @@
-import asyncio
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
-from telegram import Update
-from datetime import datetime, timedelta, timezone
-from io import BytesIO
 import os
 import psycopg2
+from datetime import datetime, timedelta, timezone
+from io import BytesIO
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 from openai import OpenAI
 
 # ===================== CONFIG =====================
@@ -86,7 +85,7 @@ async def download_photo(file_id, context: ContextTypes.DEFAULT_TYPE):
     return bio
 
 async def analyze_photo():
-    """MVP аналіз — поки без реального Vision"""
+    """Простий MVP аналіз через OpenAI"""
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -95,17 +94,13 @@ async def analyze_photo():
                 {"role": "user", "content": (
                     "Перед тобою фото речі з італійського бутіка.\n"
                     "Визнач:\n"
-                    "1. Тип речі\n"
-                    "2. Стиль\n"
-                    "3. Основний колір\n"
-                    "4. Сезон\n\n"
+                    "1. Тип речі\n2. Стиль\n3. Основний колір\n4. Сезон\n"
                     "Відповідай строго у форматі:\n"
                     "Тип: ...\nСтиль: ...\nКолір: ...\nСезон: ..."
                 )}
             ],
             temperature=0
         )
-        # Парсимо в словник (поки грубо, можна розширити)
         result_text = response.choices[0].message.content
         ai_data = {"category": None, "style": None, "color": None, "season": None, "description": result_text}
         for line in result_text.splitlines():
