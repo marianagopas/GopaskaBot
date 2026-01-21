@@ -64,67 +64,6 @@ SEASON = {
     "winter": "Зима",
 }
 
-# ================= AI =================
-async def get_photo_url(bot, file_id):
-    file = await bot.get_file(file_id)
-    return file.file_path
-
-def parse_ai(text):
-    data = {"category":None,"style":None,"color":None,"season":None}
-    for line in text.splitlines():
-        if "=" in line:
-            k,v = line.split("=",1)
-            data[k.strip()] = v.strip().lower()
-    return data
-
-async def analyze_photo(photo_url):
-    response = client.responses.create(
-        model="gpt-4.1-mini",
-        input=[{
-            "role": "user",
-            "content": [
-                {"type": "input_text", "text": """
-Return ONLY codes.
-
-Category: tshirt, pants, sweater, coat
-Style: casual, classic, sport
-Color: black, white, red, blue
-Season: spring, summer, autumn, winter
-
-Format:
-category=...
-style=...
-color=...
-season=...
-"""}, 
-                {"type": "input_image", "image_url": photo_url}
-            ]
-        }],
-        temperature=0
-    )
-
-    text = response.output_text
-    print("🧠 AI RAW:", text)
-
-    data = parse_ai(text)
-    print("✅ PARSED:", data)
-    return data
-
-def save_item(file_id, data):
-    with conn.cursor() as cur:
-        cur.execute("""
-        INSERT INTO items (telegram_file_id, category, style, color, season)
-        VALUES (%s,%s,%s,%s,%s)
-        ON CONFLICT DO NOTHING
-        """, (
-            file_id,
-            data["category"],
-            data["style"],
-            data["color"],
-            data["season"],
-        ))
-    print("💾 SAVED")
-
 # ================= FILTER STATE =================
 user_filters = {}
 
@@ -154,6 +93,71 @@ def filter_menu(chat_id, key, source):
         rows.append([InlineKeyboardButton(label + mark, callback_data=f"toggle:{key}:{code}")])
     rows.append([InlineKeyboardButton("⬅️ Назад", callback_data="main")])
     return InlineKeyboardMarkup(rows)
+
+# ================= AI =================
+async def get_photo_url(bot, file_id):
+    file = await bot.get_file(file_id)
+    return file.file_path
+
+def parse_ai(text):
+    """Парсер, який гарантує коди"""
+    data = {}
+    for line in text.splitlines():
+        if "=" in line:
+            k,v = line.split("=",1)
+            data[k.strip()] = v.strip().lower()
+    # Перевірка, щоб не було None або недозволених значень
+    for key in ["category","style","color","season"]:
+        if key not in data or data[key] not in globals()[key.upper()]:
+            data[key] = "unknown"
+    return data
+
+async def analyze_photo(photo_url):
+    response = client.responses.create(
+        model="gpt-4.1-mini",
+        input=[{
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": """
+Analyze the clothing item in the photo.
+Do not invent anything. Use ONLY one value per field from allowed lists:
+
+Category: tshirt | pants | sweater | coat
+Color: black | white | red | blue
+Style: casual | classic | sport
+Season: spring | summer | autumn | winter
+
+Return EXACTLY in format:
+category=...
+style=...
+color=...
+season=...
+                """},
+                {"type": "input_image", "image_url": photo_url}
+            ]
+        }],
+        temperature=0
+    )
+    text = response.output_text
+    print("🧠 AI RAW:", text)
+    data = parse_ai(text)
+    print("✅ PARSED:", data)
+    return data
+
+def save_item(file_id, data):
+    with conn.cursor() as cur:
+        cur.execute("""
+        INSERT INTO items (telegram_file_id, category, style, color, season)
+        VALUES (%s,%s,%s,%s,%s)
+        ON CONFLICT DO NOTHING
+        """, (
+            file_id,
+            data["category"],
+            data["style"],
+            data["color"],
+            data["season"],
+        ))
+    print("💾 SAVED")
 
 # ================= HANDLERS =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -185,17 +189,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text("✨ Gopaska Stylist", reply_markup=main_menu())
         return
 
-    if d == "filter:category":
-        await q.edit_message_text("Тип:", reply_markup=filter_menu(chat_id,"category",CATEGORY))
-        return
-    if d == "filter:color":
-        await q.edit_message_text("Колір:", reply_markup=filter_menu(chat_id,"color",COLOR))
-        return
-    if d == "filter:style":
-        await q.edit_message_text("Стиль:", reply_markup=filter_menu(chat_id,"style",STYLE))
-        return
-    if d == "filter:season":
-        await q.edit_message_text("Сезон:", reply_markup=filter_menu(chat_id,"season",SEASON))
+    if d.startswith("filter:"):
+        key = d.split(":")[1]
+        await q.edit_message_text(f"Виберіть {key}:", reply_markup=filter_menu(chat_id, key, globals()[key.upper()]))
         return
 
     if d.startswith("toggle:"):
@@ -204,9 +200,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_filters[chat_id][key].remove(value)
         else:
             user_filters[chat_id][key].append(value)
-        await q.edit_message_reply_markup(
-            reply_markup=filter_menu(chat_id, key, globals()[key.upper()])
-        )
+        await q.edit_message_reply_markup(reply_markup=filter_menu(chat_id, key, globals()[key.upper()]))
         return
 
     if d == "show_all":
