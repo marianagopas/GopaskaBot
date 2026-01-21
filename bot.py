@@ -54,7 +54,7 @@ def cleanup_old_items():
         """)
     print("🧹 Старі фото (35+ днів) видалені")
 
-# ===================== AI → СТАНДАРТНІ НАЗВИ =====================
+# ===================== AI ANALYZE =====================
 COLOR_MAP = {"black":"Чорний","white":"Білий","red":"Червоний","blue":"Синій"}
 CATEGORY_MAP = {"tshirt":"Футболка","shirt":"Футболка","pants":"Штани","trousers":"Штани",
                 "sweater":"Светр","coat":"Пальто","jacket":"Пальто"}
@@ -87,31 +87,59 @@ def save_item(file_id, message_id, photo_date, ai_data):
             mapped.get("category"), mapped.get("style"), mapped.get("season"),
             mapped.get("color"), mapped.get("description")
         ))
+    print("💾 Saved item:", mapped)  # debug
 
-# ===================== ANALYZE PHOTO =====================
 async def analyze_photo():
     try:
+        prompt = """
+Ти fashion-стиліст жіночого італійського одягу.
+Вибери тільки з цих варіантів:
+
+Тип: Футболка, Штани, Светр, Пальто
+Стиль: Casual, Classic, Sport
+Колір: Чорний, Білий, Червоний, Синій
+Сезон: Весна, Літо, Осінь, Зима
+
+Проаналізуй річ і дай відповідь у форматі:
+Тип: ...
+Стиль: ...
+Колір: ...
+Сезон: ...
+"""
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "Ти fashion-стиліст жіночого італійського одягу."},
-                {"role": "user", "content": (
-                    "Визнач для речі:\nТип\nСтиль\nКолір\nСезон\n"
-                    "Формат:\nТип: ...\nСтиль: ...\nКолір: ...\nСезон: ..."
-                )}
+                {"role": "user", "content": prompt}
             ],
             temperature=0
         )
         text = response.choices[0].message.content
-        data = {"category":None,"style":None,"color":None,"season":None,"description":text}
+        data = {"category": None, "style": None, "color": None, "season": None, "description": text}
+
         for line in text.splitlines():
-            if line.startswith("Тип:"): data["category"]=line.replace("Тип:","").strip()
-            elif line.startswith("Стиль:"): data["style"]=line.replace("Стиль:","").strip()
-            elif line.startswith("Колір:"): data["color"]=line.replace("Колір:","").strip()
-            elif line.startswith("Сезон:"): data["season"]=line.replace("Сезон:","").strip()
+            if line.startswith("Тип:"): data["category"] = line.replace("Тип:", "").strip()
+            elif line.startswith("Стиль:"): data["style"] = line.replace("Стиль:", "").strip()
+            elif line.startswith("Колір:"): data["color"] = line.replace("Колір:", "").strip()
+            elif line.startswith("Сезон:"): data["season"] = line.replace("Сезон:", "").strip()
+
+        # Перевірка на контрольовані варіанти
+        if data["category"] not in ["Футболка", "Штани", "Светр", "Пальто"]:
+            data["category"] = None
+        if data["style"] not in ["Casual", "Classic", "Sport"]:
+            data["style"] = None
+        if data["color"] not in ["Чорний", "Білий", "Червоний", "Синій"]:
+            data["color"] = None
+        if data["season"] not in ["Весна", "Літо", "Осінь", "Зима"]:
+            data["season"] = None
+
+        print("💡 AI returned:", data)
         return data
+
     except Exception as e:
-        return {"description": f"❌ OpenAI error: {e}"}
+        print("❌ OpenAI error:", e)
+        return {"category": None, "style": None, "color": None, "season": None,
+                "description": f"❌ OpenAI error: {e}"}
 
 # ===================== USER FILTERS =====================
 user_filters = {}
@@ -220,14 +248,17 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         filters_selected=user_filters[chat_id]
         query_text="SELECT telegram_file_id FROM items WHERE TRUE"
         params=[]
-        for key,vals in filters_selected.items():
+
+        for key, vals in filters_selected.items():
             if vals:
-                query_text+=" AND " + key + " = ANY(%s)"
-                params.append(vals)
-        query_text+=" ORDER BY created_at DESC LIMIT 50"
+                placeholders = ",".join(["%s"]*len(vals))
+                query_text += f" AND {key} IN ({placeholders})"
+                params.extend(vals)
+
+        query_text += " ORDER BY created_at DESC LIMIT 50"
 
         with conn.cursor() as cur:
-            cur.execute(query_text,params)
+            cur.execute(query_text, params)
             rows=cur.fetchall()
 
         if not rows:
