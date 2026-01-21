@@ -1,4 +1,5 @@
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
+from telegram import Chat
 from datetime import datetime, timedelta, timezone
 from config import BOT_TOKEN, OPENAI_API_KEY, CHANNEL_USERNAME, MAX_AGE_DAYS
 import openai
@@ -21,7 +22,6 @@ def download_photo(file_id, context):
 # Аналізуємо фото через GPT-4o-mini
 def analyze_photo(photo_bytes):
     try:
-        # Перетворюємо фото в base64, щоб GPT міг його аналізувати
         import base64
         photo_base64 = base64.b64encode(photo_bytes.read()).decode("utf-8")
         prompt = f"""
@@ -47,6 +47,10 @@ async def handle_channel_post(update, context):
     if not message or not message.photo:
         return
 
+    # Перевірка, що пост з потрібного каналу
+    if str(message.chat.username) != CHANNEL_USERNAME:
+        return
+
     now = datetime.now(timezone.utc)
     if now - message.date > timedelta(days=MAX_AGE_DAYS):
         print("⏭ Старе фото, пропускаємо")
@@ -63,9 +67,11 @@ async def handle_channel_post(update, context):
     print("📝 Результат аналізу:", analysis)
 
 def main():
+    # Один додаток, тільки polling
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.ChatType.CHANNEL, handle_channel_post))
+    print("✅ Бот запущено. Чекаю нових постів у каналі...")
     app.run_polling()
 
 if __name__ == "__main__":
